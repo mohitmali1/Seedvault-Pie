@@ -1,0 +1,142 @@
+import groovy.xml.XmlUtil
+
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-android-extensions'
+
+android {
+
+    compileSdkVersion 28
+    buildToolsVersion '28.0.3'
+
+    defaultConfig {
+        minSdkVersion 26
+        targetSdkVersion 28
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments disableAnalytics: 'true'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    lintOptions {
+        abortOnError false
+    }
+    compileOptions {
+        targetCompatibility 1.8
+        sourceCompatibility 1.8
+    }
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8.toString()
+    }
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+            testLogging {
+                events "passed", "skipped", "failed"
+            }
+        }
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+
+    sourceSets {
+        test {
+            java.srcDirs += "$projectDir/src/sharedTest/java"
+        }
+        androidTest {
+            java.srcDirs += "$projectDir/src/sharedTest/java"
+        }
+    }
+
+    // optional signingConfigs
+    def keystorePropertiesFile = rootProject.file("keystore.properties")
+    if (keystorePropertiesFile.exists()) {
+        def keystoreProperties = new Properties()
+        keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+
+        signingConfigs {
+            release {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+        buildTypes.release.signingConfig = signingConfigs.release
+        buildTypes.debug.signingConfig = signingConfigs.release
+    }
+}
+
+gradle.projectsEvaluated {
+    tasks.withType(JavaCompile) {
+        if (JavaVersion.current() >= JavaVersion.VERSION_1_9) {
+            options.compilerArgs.addAll(['--release', '8'])
+        }
+        options.compilerArgs.add('-Xbootclasspath/p:app/libs/android.jar:app/libs/libcore.jar')
+    }
+}
+
+// http://www.31mins.com/android-studio-build-system-application/
+preBuild.doLast {
+    def imlFile = file(project.name + ".iml")
+
+    try {
+        def parsedXml = (new XmlParser()).parse(imlFile)
+        def jdkNode = parsedXml.component[1].orderEntry.find { it.'@type' == 'jdk' }
+        parsedXml.component[1].remove(jdkNode)
+
+        def sdkString = "Android API " + android.compileSdkVersion.substring("android-".length()) + " Platform"
+        //noinspection GroovyResultOfObjectAllocationIgnored // the note gets inserted
+        new Node(parsedXml.component[1], 'orderEntry', ['type': 'jdk', 'jdkName': sdkString, 'jdkType': 'Android SDK'])
+        XmlUtil.serialize(parsedXml, new FileOutputStream(imlFile))
+
+    } catch (NullPointerException | FileNotFoundException ex) {
+        ex.printStackTrace()
+    }
+}
+
+// To produce these binaries, in latest AOSP source tree, run
+// $ make
+def aospDeps = fileTree(include: [
+        // out/target/common/obj/JAVA_LIBRARIES/framework_intermediates/classes.jar
+        'android.jar',
+        // out/target/common/obj/JAVA_LIBRARIES/core-libart_intermediates/classes.jar
+        'libcore.jar'
+], dir: 'libs')
+
+dependencies {
+    compileOnly aospDeps
+
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+
+    implementation 'commons-io:commons-io:2.6'
+    implementation 'io.github.novacrypto:BIP39:2019.01.27'
+    implementation 'org.koin:koin-androidx-viewmodel:2.0.1'
+
+    implementation 'androidx.core:core-ktx:1.1.0'
+    implementation 'androidx.preference:preference-ktx:1.1.0'
+    implementation 'com.google.android.material:material:1.0.0'
+    implementation 'androidx.lifecycle:lifecycle-extensions:2.1.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.1.0'
+    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.2.0-rc03'
+    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
+
+    lintChecks 'com.github.thirdegg:lint-rules:0.0.4-alpha'
+
+    def junit_version = "5.5.2"
+    testImplementation aospDeps
+    testImplementation 'androidx.test.ext:junit:1.1.1'
+    testImplementation 'org.robolectric:robolectric:4.3.1'
+    testImplementation "org.junit.jupiter:junit-jupiter-api:$junit_version"
+    testImplementation 'io.mockk:mockk:1.9.3'
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:$junit_version"
+    testRuntimeOnly "org.junit.vintage:junit-vintage-engine:$junit_version"
+
+    androidTestImplementation 'androidx.test:runner:1.2.0'
+    androidTestImplementation 'androidx.test:rules:1.2.0'
+}
